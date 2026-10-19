@@ -1,0 +1,12 @@
+# vetores gerados na execução (~60 MB para 200 vetores)
+vetores.txt
+dados*.csv
+
+# cache do Python e do Numba (@njit(cache=True))
+__pycache__/
+*.nbi
+*.nbc
+
+# ambientes virtuais
+.venv/
+venv/
