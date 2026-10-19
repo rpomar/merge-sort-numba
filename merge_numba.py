@@ -1,8 +1,11 @@
-"""merge_numba.py - Merge Sort SEQUENCIAL com Numba em vetores aleatórios
-de tamanhos variados.
+"""merge_numba.py - Merge Sort SEQUENCIAL com Numba sobre o dados.csv.
 
-Uso:  python merge_numba.py [qtd_vetores] [repeticoes] [--python]
+Uso:  python merge_numba.py [dados.csv] [repeticoes] [--python]
 
+  Mede 4 entradas montadas com os valores do arquivo: aleatória (o próprio
+  arquivo), ordenada, invertida e PIOR CASO. Grava a saída ordenada em
+  dados_ordenados_numba.csv.
+  --python  também mede merge_seq.merge_sort (Python puro, lento)
 """
 import sys
 from time import perf_counter
@@ -11,9 +14,9 @@ import numpy as np
 from numba import njit
 
 import merge_seq
-from ordenacao_paralela import ARQUIVO, gerar_vetores, salvar
 
 RUN = 16                 # tamanho dos blocos ordenados por inserção
+SAIDA = "dados_ordenados_numba.csv"
 
 
 # --------------------------------------------------------------------------
@@ -78,90 +81,123 @@ def merge_sort(v, aux):
 
 
 # --------------------------------------------------------------------------
-# Dados, medição e relatório
+# Dados de entrada
 # --------------------------------------------------------------------------
-def ler():
-    """Um vetor por linha -> arrays int32 (os valores vão até 10^9)."""
+def ler(caminho):
+    """dados.csv -> array int32 (mesma leitura de merge_seq.py)."""
     try:
-        with open(ARQUIVO, encoding="utf-8") as f:
-            return [np.array(linha.split(), dtype=np.int32)
-                    for linha in f if linha.strip()]
+        valores = merge_seq.ler_vetor(caminho)
     except FileNotFoundError:
-        return []
+        sys.exit(f"arquivo não encontrado: {caminho}\n"
+                 "coloque o dados.csv dos professores nesta pasta ou passe "
+                 "o caminho como argumento")
+    if not valores:
+        sys.exit(f"nenhum número encontrado em {caminho}")
+    limite = np.iinfo(np.int32)
+    if min(valores) < limite.min or max(valores) > limite.max:
+        sys.exit("há valores fora do intervalo de int32")
+    return np.array(valores, dtype=np.int32)
 
 
-def carregar(qtd):
-    vetores = ler()
-    if len(vetores) != qtd:
-        salvar(gerar_vetores(qtd))
-        vetores = ler()
-    return vetores
+def pior_caso(ordenado):
+    """Entrada que faz ESTE merge_sort (bottom-up) comparar o máximo.
+
+    Mesma construção de merge_seq.c: em cada intercalação o maior e o
+    segundo maior ficam em lados diferentes (L + R - 1 comparações) e os
+    blocos de RUN ficam invertidos (pior caso da inserção). As divisões são
+    as do bottom-up (meio = ini + largura), então nenhum atalho dispara.
+    """
+    v = ordenado.copy()
+
+    def montar(ini, n, largura):           # v[ini:ini+n] está crescente
+        seg = v[ini:ini + n]
+        if n <= RUN:
+            seg[:] = seg[::-1].copy()
+            return
+        if n <= largura:                   # sem par neste nível
+            montar(ini, n, largura // 2)
+            return
+        L, R = largura, n - largura        # R <= L
+        # os L - R menores já estão no início da esquerda; os 2R maiores
+        # alternam de lado, começando pelo maior na esquerda
+        topo = seg[L - R:].copy()
+        seg[L - R:L] = topo[1::2]          # maior, 3º maior, ... -> esquerda
+        seg[L:] = topo[0::2]               # 2º maior, 4º maior, ... -> direita
+        montar(ini, L, largura // 2)
+        montar(ini + L, R, largura // 2)
+
+    largura = RUN
+    while 2 * largura < len(v):            # largura da última passada
+        largura *= 2
+    montar(0, len(v), largura)
+    return v
 
 
-def medir(ordenar, entradas, gabaritos, reps):
-    """Melhor tempo de cada vetor + validação de todos."""
-    tempos, ok = [], True
-    for v, g in zip(entradas, gabaritos):
-        melhor = float("inf")
-        for _ in range(reps):
-            t0 = perf_counter()
-            res = ordenar(v)
-            melhor = min(melhor, perf_counter() - t0)
-        ok &= bool(np.array_equal(res, g))
-        tempos.append(melhor)
-    return tempos, ok
+# --------------------------------------------------------------------------
+# Medição e relatório
+# --------------------------------------------------------------------------
+def medir(ordenar, reps):
+    """Menor e média de 'reps' execuções; devolve também o último resultado."""
+    tempos = []
+    for _ in range(reps):
+        t, res = ordenar()
+        tempos.append(t)
+    return min(tempos), sum(tempos) / reps, res
 
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    qtd = int(args[0]) if args else 200
-    reps = max(1, int(args[1])) if len(args) > 1 else 3
+    caminho = args[0] if args else "dados.csv"
+    reps = max(1, int(args[1])) if len(args) > 1 else 5
     com_python = "--python" in sys.argv
 
-    vetores = carregar(qtd)
-    tam = [len(v) for v in vetores]
-    total = sum(tam)
-    print(f"{qtd} vetores | {total:,} elementos | menor={min(tam):,} "
-          f"maior={max(tam):,}")
-    gabaritos = [np.sort(v) for v in vetores]
-
-    aux = np.empty(max(tam), dtype=np.int32)
-
-    def ordenar_nb(v):                     # devolve uma cópia ordenada,
-        t = v.copy()                       # como merge_seq.merge_sort
-        merge_sort(t, aux)
-        return t
+    t0 = perf_counter()
+    dados = ler(caminho)
+    print(f"{len(dados):,} valores lidos de {caminho} em "
+          f"{perf_counter() - t0:.2f}s")
+    ordenado = np.sort(dados)              # gabarito
+    trab, aux = np.empty_like(dados), np.empty_like(dados)
 
     t0 = perf_counter()
-    ordenar_nb(vetores[0])                 # compilação fora da medição
+    merge_sort(dados.copy(), aux)          # compilação fora da medição
     print(f"compilação/carga do Numba: {perf_counter() - t0:.2f}s\n")
 
-    medidas = {"numba": medir(ordenar_nb, vetores, gabaritos, reps)}
+    def numba(entrada):
+        trab[:] = entrada                  # cópia fora da medição (como no C)
+        t0 = perf_counter()
+        merge_sort(trab, aux)
+        return perf_counter() - t0, trab
+
+    def python(lista):
+        t0 = perf_counter()
+        res = merge_seq.merge_sort(lista)
+        return perf_counter() - t0, res
+
+    cab = (f"{'entrada':<12} {'n':>10} {'melhor(s)':>10} {'media(s)':>10} "
+           f"{'válido':>7}")
     if com_python:
-        listas = [v.tolist() for v in vetores]
-        medidas["python"] = medir(merge_seq.merge_sort, listas, gabaritos,
-                                  reps)
+        cab += f" {'python(s)':>10} {'ganho':>7}"
+    print(cab + "\n" + "-" * len(cab))
 
-    print(f"{'faixa (n)':<18} {'vetores':>7} {'elementos':>11}"
-          + "".join(f" {k + '(s)':>10}" for k in medidas)
-          + (f" {'ganho':>7}" if com_python else ""))
-    faixas = [(0, 10**4), (10**4, 5 * 10**4), (5 * 10**4, 2 * 10**5),
-              (2 * 10**5, 10**9), (0, 10**9)]
-    for lo, hi in faixas:
-        idx = [i for i in range(qtd) if lo <= tam[i] < hi]
-        if not idx:
-            continue
-        rotulo = ("TOTAL" if (lo, hi) == (0, 10**9) else
-                  f">= {lo:,}" if hi == 10**9 else f"{lo:,} - {hi - 1:,}")
-        soma = {k: sum(t[i] for i in idx) for k, (t, _) in medidas.items()}
-        print(f"{rotulo:<18} {len(idx):>7} {sum(tam[i] for i in idx):>11,}"
-              + "".join(f" {s:>10.4f}" for s in soma.values())
-              + (f" {soma['python'] / soma['numba']:>6.1f}x"
-                 if com_python else ""))
+    casos = (("aleatória", dados), ("ordenada", ordenado),
+             ("invertida", ordenado[::-1].copy()),
+             ("PIOR CASO", pior_caso(ordenado)))
+    for nome, entrada in casos:
+        melhor, media, res = medir(lambda: numba(entrada), reps)
+        ok = np.array_equal(res, ordenado)
+        if nome == "aleatória":
+            merge_seq.salvar_vetor(res.tolist(), SAIDA)
+        linha = (f"{nome:<12} {len(entrada):>10,} {melhor:>10.4f} "
+                 f"{media:>10.4f} {'sim' if ok else 'NÃO':>7}")
+        if com_python:
+            lista = merge_seq.como_lido(entrada.tolist())
+            tp, _, res_py = medir(lambda: python(lista), reps)
+            ok_py = res_py == ordenado.tolist()
+            linha += (f" {tp:>10.4f} {tp / melhor:>6.1f}x"
+                      + ("" if ok_py else "  <-- python INVÁLIDO"))
+        print(linha)
 
-    for k, (t, ok) in medidas.items():
-        print(f"{k}: {sum(t) / total * 1e9:.1f} ns por elemento | "
-              f"válido: {'sim' if ok else 'NÃO'}")
+    print(f"\nvetor ordenado (entrada aleatória) gravado em {SAIDA}")
 
 
 if __name__ == "__main__":
