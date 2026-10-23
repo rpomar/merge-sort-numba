@@ -2,8 +2,9 @@
 vetores.txt
 dados*.csv
 
-# cache do Python e do Numba (@njit(cache=True))
+# cache do Python, do Numba (@njit(cache=True)) e do pytest
 __pycache__/
+.pytest_cache/
 *.nbi
 *.nbc
 
