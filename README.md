@@ -1,374 +1,177 @@
-# Merge Sort com Numba: sequencial e MPI
+# Merge Sort com Numba e MPI
 
-Ordenar milhares de vetores um atrás do outro leva tempo, mesmo com um Merge Sort rápido. Neste
-projeto, nós dividimos esses vetores entre vários processos com MPI e medimos, com números reais,
-quando isso compensa e quando não compensa.
+Trabalho da disciplina de Programação Paralela e Distribuída. O programa ordena vários vetores aleatórios de tamanhos variados, primeiro em um único processo e depois repartindo os vetores entre processos MPI. No fim, compara os resultados e os tempos das duas execuções.
 
-O projeto nasceu na disciplina de Programação Paralela e Distribuída e tem duas partes:
+O Merge Sort é escrito em Python e compilado com Numba. As duas execuções usam o mesmo código compilado, e o paralelismo vem só do MPI: cada processo ordena vetores inteiros, sem threads.
 
-- **Vários vetores, sequencial x MPI** (hackathon): `merge_mpi.py` gera vetores aleatórios de
-  tamanhos variados, ordena tudo em um processo e depois reparte o trabalho entre `P` processos.
-- **Um vetor grande, só sequencial**: `merge_numba.py` ordena o `dados.csv` dos professores
-  (1.000.000 de inteiros) e compara com C e com Python puro
-  ([veja abaixo](#merge-sort-sequencial-no-dadoscsv)).
+## Arquivos
 
-## Antes de começar: o que é paralelo aqui
-
-Vale separar três coisas que costumam se misturar:
-
-- **Merge Sort sequencial**: um processo ordena todos os vetores, um de cada vez.
-- **MPI**: `P` processos independentes, cada um com sua memória, recebem lotes de vetores e
-  ordenam cada vetor com **o mesmo** Merge Sort. O paralelismo está **entre os vetores**: cada
-  vetor é ordenado inteiro por um único processo.
-- **Numba**: só compila o Merge Sort para código de máquina. Ele deixa as duas versões mais
-  rápidas, mas **não** é paralelismo. Não usamos threads, `prange` nem `multiprocessing`.
-
-## O que tem no repositório
-
-| arquivo | para que serve |
+| arquivo | conteúdo |
 |---|---|
-| `merge_mpi.py` | programa do hackathon: mede sequencial x MPI, valida e grava o CSV |
-| `vetores.py` | cenários, gerador de vetores, divisão entre processos e validação (não usa MPI) |
-| `merge_numba.py` | o Merge Sort compilado com `@njit`, usado pelos dois programas |
-| `merge_seq.py` | leitura do CSV e Merge Sort em Python puro, para comparação |
-| `tests/` | testes automatizados com `pytest` |
-| `resultados.csv` | medições que fizemos na nossa máquina |
+| `merge_mpi.py` | execução sequencial, execução MPI, validação e gravação do CSV |
+| `vetores.py` | cenários, gerador, distribuição dos vetores e comparação de resultados |
+| `merge_numba.py` | Merge Sort compilado com `@njit` e medição no `dados.csv` |
+| `merge_seq.py` | leitura do CSV e Merge Sort em Python puro |
+| `tests/` | testes com `pytest` |
+| `resultados.csv` | medições feitas em uma máquina com Windows |
 
 ## Instalação
 
-Você vai precisar de:
+São necessários Python 3.10 ou mais novo, as bibliotecas do `requirements.txt` e uma implementação de MPI com o comando `mpiexec`. Os testes foram feitos com Python 3.14.6 e Intel MPI 2021.18, no Windows.
 
-- Python 3.10 ou mais novo (testamos com o 3.14.6);
-- as bibliotecas do `requirements.txt`: NumPy, Numba, mpi4py e pytest;
-- um MPI que forneça o comando `mpiexec` (testamos com o Intel MPI 2021.18 no Windows).
-
-Tudo fica num ambiente virtual dentro da pasta (`.venv`), sem mexer no Python do sistema.
-
-### Windows (PowerShell)
+Windows (PowerShell):
 
 ```powershell
 python -m venv .venv
-```
-```powershell
 .venv\Scripts\Activate.ps1
-```
-```powershell
 pip install -r requirements.txt
-```
-
-Se a ativação reclamar que "a execução de scripts foi desabilitada", libere só para a janela
-atual e tente de novo:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-Para ter o `mpiexec`, você pode escolher:
-
-- instalar o [Microsoft MPI](https://learn.microsoft.com/message-passing-interface/microsoft-mpi), que coloca o `mpiexec` no PATH do sistema; ou
-- instalar o Intel MPI **dentro do venv** (foi o que usamos). Ele fica em `.venv\Library\bin`, que
-  precisa entrar no PATH de cada janela nova:
-
-```powershell
 pip install impi_rt
-```
-```powershell
 $env:PATH = "$PWD\.venv\Library\bin;$env:PATH"
 ```
 
-### Linux / macOS
+O `impi_rt` instala o Intel MPI dentro do ambiente virtual. O Microsoft MPI também fornece o `mpiexec`, mas não foi testado. Se o PowerShell bloquear a ativação, rode antes `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+Linux ou macOS (não testado):
 
 ```bash
 python3 -m venv .venv
-```
-```bash
 source .venv/bin/activate
-```
-```bash
 pip install -r requirements.txt
 ```
 
-O `mpiexec` vem do Open MPI ou do MPICH: `sudo apt install openmpi-bin` no Debian/Ubuntu ou
-`brew install open-mpi` no macOS. Sem acesso de administrador, `pip install mpich` instala o
-MPICH dentro do venv.
+No Linux e no macOS, o `mpiexec` vem do Open MPI ou do MPICH: `sudo apt install openmpi-bin`, `brew install open-mpi` ou `pip install mpich`.
 
-> Nós só testamos no Windows. Os comandos para Linux e macOS são os mesmos, mas ainda não
-> rodamos nesses sistemas.
+## Execução
 
-### Funcionou?
-
-```bash
-mpiexec -n 2 python -c "from mpi4py import MPI; print(MPI.COMM_WORLD.rank, MPI.COMM_WORLD.size)"
-```
-
-Você deve ver `0 2` e `1 2`, em qualquer ordem.
-
-## Como rodar
-
-Tudo roda em uma máquina só: o `mpiexec -n P` abre `P` processos locais.
-
-Ver todas as opções:
 ```bash
 python merge_mpi.py --help
-```
-
-Rodar com 1 processo, sem `mpiexec`:
-```bash
 python merge_mpi.py --cenario bordas
-```
-
-Rodar todos os cenários com 4 processos:
-```bash
 mpiexec -n 4 python -m mpi4py merge_mpi.py
-```
-
-Escolher cenário, quantidade de vetores e semente:
-```bash
 mpiexec -n 2 python -m mpi4py merge_mpi.py --cenario variados --vetores 50 --semente 7
-```
-
-Ver o que acontece quando há mais processos do que vetores:
-```bash
 mpiexec -n 8 python -m mpi4py merge_mpi.py --cenario grandes --vetores 3
 ```
 
-Usamos `python -m mpi4py` porque, se um processo der erro, ele encerra todos os outros. Sem isso,
-os demais podem ficar esperando uma mensagem que nunca chega.
+O `mpiexec -n P` abre `P` processos na mesma máquina. Com `-m mpi4py`, um erro em um processo encerra os demais.
 
-### Opções
-
-| opção | padrão | o que faz |
+| opção | padrão | significado |
 |---|---|---|
 | `--cenario` | `todos` | `pequenos`, `grandes`, `variados`, `bordas` ou `todos` |
-| `--semente` | 42 | a mesma semente gera os mesmos vetores |
-| `--repeticoes` | 3 | quantas vezes medir cada versão; o speedup usa o **menor** tempo |
+| `--semente` | 42 | semente do gerador |
+| `--repeticoes` | 3 | medições de cada versão |
 | `--vetores` | do cenário | quantidade de vetores |
-| `--tam-min`, `--tam-max` | do cenário | tamanho mínimo e máximo de cada vetor (0 permite vetores vazios) |
-| `--vmin`, `--vmax` | do cenário | intervalo dos valores (dentro de `int32`, negativos incluídos) |
-| `--csv` | `resultados.csv` | arquivo onde as linhas são **acrescentadas** |
+| `--tam-min`, `--tam-max` | do cenário | tamanho mínimo e máximo (0 permite vetores vazios) |
+| `--vmin`, `--vmax` | do cenário | intervalo dos valores, dentro de `int32` |
+| `--csv` | `resultados.csv` | arquivo em que as linhas são acrescentadas |
 
-Se algum vetor sair errado, o programa mostra quais foram e termina com código **1**. Se uma
-opção for inválida, ele explica o problema e termina com código **2**.
+O programa termina com código 1 se a validação falhar e com código 2 se uma opção for inválida.
+
+No Windows, os acentos podem sair errados na saída do `mpiexec`. Isso não afeta o CSV. Para ajustar a janela atual:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"; [Console]::OutputEncoding = [Text.Encoding]::UTF8
+```
 
 ## Cenários
 
-| cenário | vetores | tamanho de cada um | valores | o que queremos ver |
-|---|---|---|---|---|
-| `pequenos` | 5000 | 0 a 2.000 | ±1.000.000 | muitas mensagens com pouco trabalho em cada uma |
-| `grandes` | 8 | 1 a 2 milhões | ±1.000.000 | poucos vetores grandes, difíceis de equilibrar |
-| `variados` | 100 | 0 a 400.000 | ±1.000.000 | tamanhos bem diferentes entre si |
-| `bordas` | 200 | 0 a 3 | −2 a 2 | vetores vazios, unitários, repetidos e negativos |
+| cenário | vetores | tamanho | valores |
+|---|---|---|---|
+| `pequenos` | 5000 | 0 a 2.000 | -1.000.000 a 1.000.000 |
+| `grandes` | 8 | 1.000.000 a 2.000.000 | -1.000.000 a 1.000.000 |
+| `variados` | 100 | 0 a 400.000 | -1.000.000 a 1.000.000 |
+| `bordas` | 200 | 0 a 3 | -2 a 2 |
 
-Tamanhos e valores são sorteados de forma uniforme com `numpy.random.default_rng(semente)`. Os
-vetores são `int32`, o tipo que o Merge Sort em Numba usa. Todos os cenários têm valores repetidos
-e negativos.
+Tamanhos e valores são sorteados com distribuição uniforme. O cenário `bordas` cobre vetores vazios, unitários, com repetidos e com negativos.
 
-## O que entra em cada tempo
+## Funções principais
 
-Gerar os vetores, decidir quem ordena o quê e compilar o Numba acontece **antes** das medições.
+| função | arquivo | o que faz |
+|---|---|---|
+| `insercao` | `merge_numba.py` | ordena um bloco de até 16 elementos por inserção |
+| `intercalar` | `merge_numba.py` | intercala dois blocos ordenados |
+| `merge_sort` | `merge_numba.py` | ordena um vetor `int32` no lugar, usando um vetor auxiliar |
+| `gerar_vetores` | `vetores.py` | gera os vetores a partir da semente |
+| `distribuir` | `vetores.py` | define quais vetores cada processo ordena |
+| `desequilibrio` | `vetores.py` | calcula a maior carga dividida pela carga média |
+| `validar` | `vetores.py` | devolve os índices dos vetores que diferem do esperado |
+| `ordenar_lote` | `merge_mpi.py` | ordena uma cópia de cada vetor de um lote e mantém os índices |
+| `sequencial` | `merge_mpi.py` | ordena todos os vetores em um processo e mede o tempo |
+| `paralelo` | `merge_mpi.py` | envia os lotes, ordena, coleta os resultados e mede o tempo |
+| `executar` | `merge_mpi.py` | roda um cenário, valida e monta a linha do CSV |
+| `gravar_csv` | `merge_mpi.py` | acrescenta uma linha ao arquivo de resultados |
 
-- **Tempo sequencial** (`tempo_seq_s`): o processo 0 copia e ordena cada vetor, um de cada vez.
-- **Tempo MPI** (`tempo_par_s`): começa depois que todos os processos se sincronizam e termina
-  quando o processo 0 tem todos os vetores de volta, na ordem original. Inclui:
-  - montar os lotes e serializá-los;
-  - enviar (`scatter`) e receber de volta (`gather`);
-  - ordenar em cada processo;
-  - esperar o processo mais lento;
-  - recolocar cada vetor no lugar.
+O `merge_sort` é bottom-up e não usa recursão. Primeiro ordena blocos de 16 elementos por inserção. Depois intercala blocos cada vez maiores, alternando entre o vetor original e o auxiliar. Pares de blocos já em ordem ou em ordem inversa são apenas copiados.
 
-A conferência dos resultados fica fora dos dois tempos.
+## Execução com MPI
 
-## Como dividimos o trabalho
+1. O processo 0 gera os vetores e calcula a distribuição.
+2. O processo 0 ordena todos os vetores sozinho, para obter a referência sequencial.
+3. Todos os processos se sincronizam com `Barrier`.
+4. O `scatter` envia um lote de pares `(índice, vetor)` a cada processo, inclusive ao processo 0.
+5. Cada processo ordena o seu lote com `ordenar_lote`.
+6. O `gather` traz os lotes de volta ao processo 0, que usa os índices para restaurar a ordem original.
+7. O resultado sequencial é comparado com `numpy.sort`, e o resultado MPI é comparado com o sequencial.
 
-A ideia é simples: **o maior vetor primeiro, para quem está mais livre.**
+A distribuição percorre os vetores do maior para o menor e entrega cada um ao processo com menos elementos acumulados. No empate, escolhe o processo com menos vetores. Se houver mais processos do que vetores, os processos excedentes recebem lotes vazios e o programa informa quantos ficaram sem trabalho.
 
-1. Ordenamos os vetores do maior para o menor.
-2. Cada vetor vai para o processo com **menos elementos** acumulados até ali.
-3. Em caso de empate, ganha quem tem menos vetores. Assim os vetores vazios também se espalham.
+## Medições
 
-Cada vetor viaja com seu índice original. O processo 0 manda um lote para cada processo
-(inclusive para si mesmo), recebe pares `(índice, vetor ordenado)` e devolve tudo para a posição
-de origem. Se houver mais processos do que vetores, os que sobram recebem um lote vazio, e o
-programa avisa quantos ficaram sem trabalho.
+A geração dos vetores, o cálculo da distribuição, a compilação do Numba e a validação ficam fora dos tempos.
 
-## O CSV de resultados
+O tempo sequencial inclui a cópia e a ordenação de cada vetor no processo 0. O tempo MPI começa depois da barreira e termina com todos os vetores de volta na ordem original, incluindo a serialização, a comunicação e a espera pelo processo mais lento.
 
-Cada execução acrescenta uma linha por cenário em `resultados.csv`:
-
-| coluna | o que guarda |
+| métrica | cálculo |
 |---|---|
-| `data_hora` | quando a linha foi gravada |
-| `cenario`, `semente` | cenário e semente usados |
-| `processos`, `processos_ociosos` | processos MPI e quantos ficaram sem vetores |
-| `vetores`, `total_elementos` | quantidade de vetores e soma dos tamanhos |
-| `tam_min`, `tam_max`, `vmin`, `vmax` | parâmetros do gerador |
-| `repeticoes` | quantas vezes cada versão foi medida |
-| `tempo_seq_s`, `tempo_par_s` | menor tempo sequencial e menor tempo MPI, em segundos |
-| `tempo_seq_medio_s`, `tempo_par_medio_s` | média das repetições |
-| `speedup` | `tempo_seq_s / tempo_par_s` |
-| `eficiencia` | `speedup / processos` |
-| `desequilibrio` | maior carga dividida pela carga média (1,0 = todos com o mesmo tanto) |
-| `validacao` | `ok` ou `falhou` |
+| speedup | menor tempo sequencial / menor tempo MPI |
+| eficiência | speedup / número de processos |
+| desequilíbrio | maior carga / carga média, em elementos |
 
-## Como ler os números
+Speedup abaixo de 1 significa que o MPI foi mais lento. Isso é esperado em cargas pequenas, em que enviar e receber os vetores custa mais do que ordená-los, e também com 1 processo. Os tempos mudam com o computador, o número de processos e a carga da máquina.
 
-- **Speedup maior que 1**: o MPI terminou antes do sequencial. O máximo teórico é o número de
-  processos.
-- **Eficiência**: quanto cada processo rendeu (1,0 seria o ideal). Ela cai quando a comunicação
-  pesa, quando a carga fica desigual ou quando há mais processos do que núcleos.
-- **Desequilíbrio**: no cenário `grandes` com 8 processos, cada um recebe um vetor, e quem pegou o
-  maior define o tempo de todos. Dividindo vetores inteiros, não tem como evitar isso.
-- **MPI mais lento que o sequencial?** Acontece, e é esperado em cargas pequenas. Cada processo é
-  um programa separado, e os vetores precisam ser empacotados, enviados e devolvidos. Quando
-  ordenar leva menos tempo que esse transporte, o speedup fica abaixo de 1. É o que vemos no
-  cenário `bordas` e em qualquer cenário com 1 processo.
-- **Seus números serão outros.** O resultado depende do computador, do número de processos e do
-  que mais estiver rodando. Processadores com núcleos de tipos diferentes (desempenho e eficiência)
-  e o modo de energia mudam bastante os tempos. Repita as medições e compare execuções feitas nas
-  mesmas condições.
+Cada execução acrescenta ao CSV uma linha por cenário, com data, cenário, semente, processos, processos ociosos, vetores, total de elementos, parâmetros do gerador, repetições, menores tempos, tempos médios, speedup, eficiência, desequilíbrio e validação.
 
-### Uma execução nossa
-
-Com 4 processos, em um Windows 11 com Intel Core Ultra 7 255H (16 núcleos) e Intel MPI 2021.18:
+Exemplo com 4 processos, em um Intel Core Ultra 7 255H:
 
 ```
-4 processo(s) MPI, semente 42, menor de 3 medição(ões)
-
 cenário   vetores   elementos   seq(s)   mpi(s) speedup  efic. deseq. validação
 -------------------------------------------------------------------------------
 pequenos    5,000   4,986,460   0.1451   0.1077   1.348  0.337  1.000        ok
 grandes         8  12,031,583   0.6243   0.2694   2.318  0.579  1.041        ok
 variados      100  21,069,636   0.9495   0.4275   2.221  0.555  1.001        ok
 bordas        200         306   0.0001   0.0005   0.186  0.047  1.007        ok
-
-resultados acrescentados em resultados.csv
 ```
 
-> **Acentos estranhos no Windows?** Ao rodar pelo `mpiexec`, você pode ver "cenßrio" em vez de
-> "cenário". É só a exibição no console; o CSV é gravado certo. Para corrigir na janela atual:
->
-> ```powershell
-> $env:PYTHONIOENCODING = "utf-8"; [Console]::OutputEncoding = [Text.Encoding]::UTF8
-> ```
-
 ## Testes
-
-Com o venv ativado e o `mpiexec` no PATH:
 
 ```bash
 python -m pytest
 ```
 
-| arquivo | o que confere |
-|---|---|
-| `tests/test_ordenacao.py` | o Merge Sort com vetor vazio, unitário, repetidos, negativos, extremos de `int32` e tamanhos perto dos blocos de 16 |
-| `tests/test_vetores.py` | gerador (semente, limites, tamanhos desiguais, parâmetros inválidos), divisão entre processos e validação |
-| `tests/test_mpi.py` | ordem original, execução com 1 processo, falha de validação com código 1, opções inválidas e, **se houver `mpiexec`**, execuções reais com 2 processos e com mais processos do que vetores |
+Os testes cobrem a ordenação, o gerador, a distribuição, a validação e a execução com 1 processo. Os dois testes com vários processos exigem `mpiexec` no PATH e são pulados sem ele. Sem `mpi4py`, todo o `tests/test_mpi.py` é pulado.
 
-Se o `mpiexec` não estiver no PATH, os dois testes com vários processos aparecem como `SKIPPED`.
-Sem `mpi4py`, o `test_mpi.py` inteiro é pulado. O resto roda normalmente.
+## Limitações
 
-## Limitações conhecidas
+- Cada vetor é ordenado por um único processo, então um vetor muito grande limita o tempo total.
+- A distribuição usa o tamanho do vetor como peso e ignora o custo de comunicação.
+- `scatter` e `gather` com pickle serializam e copiam todos os dados.
+- O processo 0 mantém na memória os vetores de entrada e os dois resultados.
+- O código só aceita vetores `int32`.
+- Só foi testado em uma máquina com Windows.
 
-- Paralelizamos **entre** vetores. Um vetor enorme continua sendo ordenado por um processo só.
-- A divisão usa o tamanho `n` como peso, não `n log n`, e ignora o custo de enviar os dados.
-- `scatter` e `gather` com pickle são simples de usar, mas copiam e serializam tudo. Versões com
-  buffer (`Scatterv`/`Gatherv`) seriam mais rápidas, só que exigem calcular deslocamentos.
-- O processo 0 guarda todos os vetores na memória: a entrada, o resultado sequencial e o
-  resultado MPI.
-- Só aceitamos vetores `int32`, como o Merge Sort em Numba.
-- Testamos em uma máquina com Windows. Ainda não rodamos em cluster, Linux ou macOS.
+## Merge Sort no dados.csv
 
-Achou um problema ou tem uma ideia? Abra uma issue, ficaremos felizes em conversar.
-
----
-
-## Merge Sort sequencial no dados.csv
-
-Aqui a pergunta é outra: **quanto o Numba aproxima o Python do C** em um único vetor de 1.000.000
-de inteiros (o `dados.csv` dos professores, com os números separados por `;`).
-
-O `dados.csv` **não está no repositório**. Coloque o arquivo nesta pasta ou passe o caminho dele:
+O `merge_numba.py` ordena o vetor de 1.000.000 de inteiros do `dados.csv` fornecido pelos professores. Esse arquivo não está no repositório.
 
 ```bash
 python merge_numba.py [dados.csv] [repeticoes] [--python]
 ```
 
-| argumento | padrão | o que faz |
-|---|---|---|
-| `dados.csv` | `dados.csv` | caminho do arquivo dos professores |
-| `repeticoes` | 5 | execuções por entrada; mostramos o **menor** tempo e a média |
-| `--python` | — | mede também o Merge Sort em Python puro (bem mais lento) |
+O programa mede quatro entradas com os mesmos valores (aleatória, ordenada, invertida e pior caso), confere cada resultado com `numpy.sort` e grava o vetor ordenado em `dados_ordenados_numba.csv`. A opção `--python` mede também o Merge Sort em Python puro.
 
-Medimos quatro entradas, todas com os mesmos valores:
+Menor tempo de 7 execuções, com o mesmo algoritmo no C e no Numba:
 
-- **aleatória**: o próprio `dados.csv`;
-- **ordenada**: os valores já em ordem crescente;
-- **invertida**: os valores em ordem decrescente;
-- **pior caso**: uma ordem que obriga cada intercalação a comparar até o último elemento.
-
-O vetor ordenado é salvo em `dados_ordenados_numba.csv`.
-
-### Exemplo de saída
-
-```
-1,000,000 valores lidos de dados.csv em 0.24s
-compilação/carga do Numba: 0.46s
-
-entrada               n  melhor(s)   media(s)  válido
------------------------------------------------------
-aleatória     1,000,000     0.0511     0.0821     sim
-ordenada      1,000,000     0.0319     0.0395     sim
-invertida     1,000,000     0.0350     0.0458     sim
-PIOR CASO     1,000,000     0.0714     0.0842     sim
-
-vetor ordenado (entrada aleatória) gravado em dados_ordenados_numba.csv
-```
-
-Na primeira vez, o Numba leva cerca de 4 s para compilar (fora da medição). Depois, o código
-compilado fica em cache no `__pycache__` e o programa começa em menos de 1 s. Com `--python`, as
-medições em Python puro rodam intercaladas com as do Numba e deixam os tempos do Numba mais lentos
-e instáveis.
-
-### Numba x C x Python puro
-
-Mesmo `dados.csv` e mesmo algoritmo (bottom-up) no C e no Numba. Cada versão rodou sozinha, e
-anotamos o menor tempo de 7 execuções:
-
-| entrada | C (`gcc -O2`, WSL) | **Numba** | Python puro |
+| entrada | C (`gcc -O2`, WSL) | Numba | Python puro |
 |---|---|---|---|
-| aleatória | 0,053 s | **0,050 s** | 3,68 s |
-| ordenada | 0,008 s | **0,025 s** | 0,60 s |
-| invertida | 0,012 s | **0,029 s** | 0,63 s |
-| pior caso | 0,047 s | **0,049 s** | 3,88 s |
-
-- Na entrada **aleatória** e no **pior caso**, em que o trabalho de verdade é intercalar, o Numba
-  **empata com o C** e é cerca de 75 vezes mais rápido que o Python puro.
-- Nas entradas **ordenada** e **invertida**, quase tudo vira cópia de blocos. O C usa `memcpy` e
-  fica 2 a 3 vezes à frente, numa diferença de centésimos de segundo.
-- As saídas do C, do Numba e do Python puro são idênticas, byte a byte.
-
-### Por dentro do Merge Sort
-
-O `@njit` compila as três funções principais (`insercao`, `intercalar` e `merge_sort`) para
-código de máquina, sem passar pelo interpretador. Para chegar perto do C, escrevemos o código do
-jeito que escreveríamos em C:
-
-1. **arrays NumPy `int32` contíguos**, como um `int[]`, em vez de listas de objetos;
-2. **bottom-up, sem recursão**, com dois buffers que se alternam: cada passada lê de um e escreve
-   no outro, sem copiar de volta;
-3. **intercalação sem `if` na escolha do próximo elemento** (o compilador gera `cmov`), o que
-   ajuda quando essa escolha é imprevisível;
-4. **blocos de 16 elementos ordenados por inserção** antes de começar a intercalar;
-5. **atalhos** para pares de blocos que já estão em ordem ou em ordem inversa (viram cópias);
-6. **compilação antes da medição**, com uma chamada de aquecimento.
-
-O **pior caso** foi montado para as divisões exatas do bottom-up. Em cada intercalação, o maior e
-o segundo maior valor ficam em lados diferentes, o que força L + R − 1 comparações (o máximo). Os
-blocos de 16 ficam em ordem inversa, que é o pior caso da inserção. Assim, nenhum atalho entra em
-ação.
-
-### Como sabemos que está certo
-
-Cada resultado é comparado, elemento por elemento, com o `numpy.sort`. Na leitura, conferimos se
-todos os valores cabem em `int32` e avisamos com uma mensagem clara se o arquivo não existir.
+| aleatória | 0,053 s | 0,050 s | 3,68 s |
+| ordenada | 0,008 s | 0,025 s | 0,60 s |
+| invertida | 0,012 s | 0,029 s | 0,63 s |
+| pior caso | 0,047 s | 0,049 s | 3,88 s |
