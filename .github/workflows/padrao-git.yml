@@ -1,0 +1,49 @@
+name: Padrão Git
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    name: padrao-git
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Validar branch, título do PR e commits
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          TITULO: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          TIPOS='feat|fix|hotfix|docs|style|refactor|perf|test|build|ci|chore|revert'
+          RC="^($TIPOS)(\([a-z0-9._/-]+\))?!?: [^ ].{0,99}\$"
+          RE='^(Merge |Revert "|(fixup|squash|amend)! )'
+          RB="^(($TIPOS|release)/[a-z0-9][a-z0-9._-]*|(claude|dependabot|renovate)/.+|develop)\$"
+          falhou=0
+
+          if ! printf '%s\n' "$BRANCH" | grep -Eq "$RB"; then
+            echo "::error::Branch fora do padrão: '$BRANCH' (use tipo/descricao-curta, ex.: feat/login-google)"
+            falhou=1
+          fi
+          if ! printf '%s\n' "$TITULO" | grep -Eq "$RC"; then
+            echo "::error::Título do PR fora do padrão: '$TITULO' (use tipo(escopo): descrição, ex.: feat(auth): adiciona login)"
+            falhou=1
+          fi
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            s=$(git log -1 --format=%s "$c")
+            if ! printf '%s\n' "$s" | grep -Eq "$RC" && ! printf '%s\n' "$s" | grep -Eq "$RE"; then
+              echo "::error::Commit $(git rev-parse --short "$c") fora do padrão: '$s'"
+              falhou=1
+            fi
+          done
+          [ $falhou -eq 0 ] && echo "Tudo no padrão."
+          exit $falhou
